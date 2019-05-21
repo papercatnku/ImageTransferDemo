@@ -1,50 +1,24 @@
-import sys
+import sys,os
 import time
 
 import cv2
-from torch.autograd import Variable
 from PyQt5.QtWidgets import QWidget, QApplication, QLabel
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 
-from network import *
+from utils import StyleTransfer
 
+style_model_path = './models/weights/'
+style_img_path = './models/style/'
+
+def init_valid_model_list():
+    style_candidates = os.listdir(style_img_path)
+    valid_style_list= [_name[:_name.rfind('.')] for _name in style_candidates]
+    return tuple(valid_style_list)
 
 use_cuda = 0
-style_names = ('autoportrait', 'candy', 'composition', 'edtaonisl', 'udnie')
-style_model_path = 'models/weights/'
-style_img_path = 'models/style/'
-
-
-class ReCoNetTransfer:
-    def __init__(self):
-        self.model = ReCoNet()
-        self.model_path = None
-
-    def transfer(self, x_np):
-        if self.model_path is None:
-            return x_np, None
-
-        x_np = x_np.transpose(2, 0, 1)
-        x_tensor = torch.from_numpy(x_np).float().unsqueeze(0)
-        x_variable = Variable(x_tensor.cuda() if use_cuda else x_tensor, volatile=True)
-
-        inference_time = time.time()
-        y_variable = self.model(x_variable)
-        inference_time = time.time() - inference_time
-
-        y_np = y_variable.cpu().clamp(0, 255).data.squeeze(0).numpy().transpose(1, 2, 0).astype('uint8').copy()
-
-        return y_np, inference_time
-
-    def change_model(self, model_path):
-        self.model.load_state_dict(torch.load(model_path))
-        if use_cuda:
-            self.model.cuda()
-        self.model.eval()
-        self.model_path = model_path
-        return
-
+gpuid = 0
+style_names = init_valid_model_list()
 
 class Thread(QThread):
     change_pixmap_x = pyqtSignal(QPixmap)
@@ -56,13 +30,15 @@ class Thread(QThread):
         QThread.__init__(self, parent=parent)
         self.video_height = video_height
         self.video_width = video_width
-        self.reconet = ReCoNetTransfer()
+        self.stnet = StyleTransfer(gpuid, video_width, video_height)
 
     def transfer(self, x_np):
-        return self.reconet.transfer(x_np)
+        return self.stnet.transfer(x_np)
 
-    def change_model(self, model_path):
-        self.reconet.change_model(model_path)
+    def change_model(self, model_tag):
+        self.stnet.change_model(
+            os.path.join(style_model_path,model_tag + '.json'),
+            os.path.join(style_model_path,model_tag + '.params'))
         return
 
     def run(self):
@@ -72,10 +48,12 @@ class Thread(QThread):
         while True:
             display_time = time.time()
             ret, x_np = cap.read()
+            if not ret:
+                print('can not read camera')
+                break
             x_np = cv2.cvtColor(x_np, cv2.COLOR_BGR2RGB)
-
+            # Model process here
             y_np, inference_time = self.transfer(x_np)
-
             x_qt = QImage(x_np.data, x_np.shape[1], x_np.shape[0], QImage.Format_RGB888)
             x_qt = QPixmap.fromImage(x_qt)
             x_qt = x_qt.scaled(self.video_width, self.video_height, Qt.KeepAspectRatio)
@@ -83,7 +61,6 @@ class Thread(QThread):
             y_qt = QImage(y_np.data, y_np.shape[1], y_np.shape[0], QImage.Format_RGB888)
             y_qt = QPixmap.fromImage(y_qt)
             y_qt = y_qt.scaled(self.video_width, self.video_height, Qt.KeepAspectRatio)
-
             self.change_pixmap_x.emit(x_qt)
             self.change_pixmap_y.emit(y_qt)
 
@@ -97,17 +74,20 @@ class Thread(QThread):
 
 class StyleLabel(QLabel):
     signal = pyqtSignal(['QString'])
-
     def __init__(self, label, parent=None):
         QLabel.__init__(self, parent=parent)
-        self.model_name = style_model_path + style_names[label] + '.model'
+        self.model_tag = style_names[label]
 
     def mousePressEvent(self, event):
-        self.signal.emit(self.model_name)
-
+        self.signal.emit(self.model_tag)
 
 class GUI(QWidget):
-    def __init__(self, video_width=640, video_height=480, padding=20, margin=100):
+    def __init__(
+            self,
+            video_width=640,
+            video_height=480,
+            padding=20,
+            margin=100):
         super().__init__()
         self.title = 'ReCoNet Demo'
 
@@ -139,7 +119,10 @@ class GUI(QWidget):
         label_dis.resize(150, 50)
         label_dis.setStyleSheet('background: yellow')
 
-        th = Thread(self.video_width, self.video_height, parent=self)
+        th = Thread(
+            self.video_width,
+            self.video_height,
+            parent=self)
         th.change_pixmap_x.connect(label_x.setPixmap)
         th.change_pixmap_y.connect(label_y.setPixmap)
         th.change_pixmap_inf.connect(label_inf.setText)
@@ -158,12 +141,10 @@ class GUI(QWidget):
 
         self.show()
 
-
 def main():
     app = QApplication(sys.argv)
     gui = GUI()
     sys.exit(app.exec_())
-
 
 if __name__ == "__main__":
     main()

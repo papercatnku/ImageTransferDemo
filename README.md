@@ -1,13 +1,7 @@
-# ReCoNet
-Testing Code for ReCoNet: Real-time Coherent Video Style Transfer Network.
+# Image Transfer Network Demo
+This demo is forked from [ReCoNet Demo](https://github.com/irsisyphus/reconet)
+Some modification were made so that now it runs with mxnet models.
 
-This is my final year project at the University of Hong Kong. The project page is available at [FYP17004](http://i.cs.hku.hk/fyp/2017/fyp17004/). Other authors are Derun Gu, Fangjun Zhang, and Yizhou Yu.
+## usage
+Put .jpg stlye images file in ./models/style and put a .json and a .params for each model(sahre same name with the jpgs)in ./models/weights 
 
-## Code
-Training code and model binary files are currently unavailable.
-
-## Paper
-Paper available at [arXiv](https://arxiv.org/abs/1807.01197).
-
-## Video
-Demo video available at [YouTube](https://youtu.be/vhBRanZmdH0).
